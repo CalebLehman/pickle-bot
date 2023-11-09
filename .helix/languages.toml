@@ -1,0 +1,10 @@
+[[language]]
+name = "python"
+language-servers = ["pylsp"]
+
+[language-server.pylsp.config.pylsp.plugins]
+flake8 = {enabled = true}
+mccabe = {enabled = false}
+pycodestyle = {enabled = false}
+pyflakes = {enabled = false}
+
