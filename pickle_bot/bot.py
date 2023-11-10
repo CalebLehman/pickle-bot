@@ -26,23 +26,27 @@ def from_list(players: [str]) -> str:
 
 @dataclass
 class MsgContent:
-    state: str
-    matches: [str]
-    errors: [str]
+    state_content: str
+    matches_content: [str]
+    errors_content: [str]
 
     def to_embed(self) -> discord.Embed:
-        lines = [self.state]
-        lines.extend(["## Matches", "```"] + (self.matches or ["<none>"]) + ["```"])
-        if self.errors:
-            lines.extend(["## Errors", "```"] + self.errors + ["```"])
+        color = discord.Color.dark_green()
+        lines = [self.state_content, ""]
+        lines.extend(["__**Matches**__", "```"] + (self.matches_content or ["<none>"]) + ["```"])
+        if self.errors_content:
+            lines.extend(["__**Errors**__", "```"] + self.errors_content + ["```"])
+            color = discord.Color.dark_red()
         description = "\n".join(lines)
-        return discord.Embed(title="Pickleball Matches Generator", description=description)
+        return discord.Embed(
+            title="Pickleball Matches Generator", description=description, color=color
+        )
 
 
 @dataclass
 class State:
-    singles: int
-    doubles: int
+    singles: str
+    doubles: str
     players: [str]
 
     def get_msg_parts(self) -> (MsgContent, discord.ui.View):
@@ -53,31 +57,40 @@ class State:
         ])
         matches_content = []
         errors_content = []
+
         try:
-            log.info(f"Generating matches for ({self.singles}, {self.doubles}, {self.players})")
-            matches = get_random_matches(self.singles, self.doubles, self.players)
-            matches_content = [str(match) for match in matches]
-            view = generate_view(self)
+            log.info("Converting number of courts to numbers")
+            singles = int(self.singles)
+            doubles = int(self.doubles)
+            log.info(f"Generating matches for ({singles}, {doubles}, {self.players})")
+            matches = get_random_matches(singles, doubles, self.players)
+            matches_content.extend([str(match) for match in matches])
+        except ValueError as e:
+            log.info(f"Number of courts is not an integer: {e}")
+            errors_content.append(f"<number of courts not an integer>: {e}")
         except NotEnoughPlayersError as e:
-            log.info("Not enough players to generate matches")
-            errors_content = [f"<not enough players>: {e}"]
-            view = generate_view(self, False)
+            log.info(f"Not enough players to generate matches: {e}")
+            errors_content.append(f"<not enough players>: {e}")
         msg_content = MsgContent(state_content, matches_content, errors_content)
+        view = generate_view(self, len(errors_content) == 0)
         return (msg_content, view)
 
 
-def generate_view(state: State, can_generate: bool = True) -> discord.ui.View:
+def generate_view(state: State, can_generate: bool) -> discord.ui.View:
+    disabled = not can_generate
+    style = discord.ButtonStyle.green if can_generate else discord.ButtonStyle.red
+
     class __View(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=None)
             self.state = state
 
-        @discord.ui.button(label="Generate", disabled=not can_generate)
+        @discord.ui.button(label="Generate", disabled=disabled, style=style)
         async def generate(self, interaction: discord.Interaction, button: discord.ui.Button):
             msg_content, view = self.state.get_msg_parts()
             await interaction.response.edit_message(embed=msg_content.to_embed(), view=view)
 
-        @discord.ui.button(label="Edit")
+        @discord.ui.button(label="Edit", style=discord.ButtonStyle.blurple)
         async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
             await interaction.response.send_modal(generate_modal(interaction, self.state))
 
@@ -105,15 +118,12 @@ def generate_modal(parent_interaction: discord.Interaction, state: State):
         async def on_submit(self, interaction: discord.Interaction):
             await interaction.response.defer()
             msg_content, view = self.state.get_msg_parts()
-            try:
-                state = State(
-                    int(self.singles_input.value),
-                    int(self.doubles_input.value),
-                    to_list(self.players_input.value),
-                )
-                msg_content, view = state.get_msg_parts()
-            except ValueError as value_error:
-                msg_content.errors.append(f"<edit failed>: {value_error}")
+            state = State(
+                self.singles_input.value,
+                self.doubles_input.value,
+                to_list(self.players_input.value),
+            )
+            msg_content, view = state.get_msg_parts()
             await parent_interaction.followup.edit_message(
                 parent_interaction.message.id, embed=msg_content.to_embed(), view=view
             )
@@ -161,7 +171,7 @@ Current commands are:
             players="Comma-separated list of player names",
         )
         async def match(interaction: discord.Interaction, singles: int, doubles: int, players: str):
-            state = State(singles, doubles, to_list(players))
+            state = State(str(singles), str(doubles), to_list(players))
             msg_content, view = state.get_msg_parts()
             await interaction.response.send_message(
                 embed=msg_content.to_embed(), view=view, ephemeral=True

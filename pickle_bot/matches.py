@@ -36,8 +36,8 @@ class Match:
 class NotEnoughPlayersError(Exception):
     def __init__(self, singles: int, doubles: int, players: [str]):
         message = (
-            f"Can't make matches with {len(players)} < {singles} * {CourtType.SINGLES.size()} +"
-            f" {doubles} * {CourtType.DOUBLES.size()}"
+            f"{len(players)} < {singles} * {CourtType.SINGLES.size()} + {doubles} *"
+            f" {CourtType.DOUBLES.size()}"
         )
         super().__init__(message)
 
