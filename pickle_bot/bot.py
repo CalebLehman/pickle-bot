@@ -166,11 +166,13 @@ Current commands are:
 
         @group.command(description="Generate random pickleball matches")
         @discord.app_commands.describe(
+            players="Comma-separated list of player names",
             singles="Number of singles courts",
             doubles="Number of doubles courts",
-            players="Comma-separated list of player names",
         )
-        async def match(interaction: discord.Interaction, singles: int, doubles: int, players: str):
+        async def match(
+            interaction: discord.Interaction, players: str, singles: int = 0, doubles: int = 0
+        ):
             state = State(str(singles), str(doubles), to_list(players))
             msg_content, view = state.get_msg_parts()
             await interaction.response.send_message(
