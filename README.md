@@ -12,6 +12,14 @@ Values can be specified through a `.env` file.
 
 ## Usage
 
+### With Docker
+
+```
+docker compose up
+```
+
+### Without Docker
+
 ```
 poetry install
 poetry run bot  
