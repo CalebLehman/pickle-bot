@@ -21,6 +21,6 @@ docker compose up
 ### Without Docker
 
 ```
-poetry install
+poetry install --without dev
 poetry run bot  
 ```
