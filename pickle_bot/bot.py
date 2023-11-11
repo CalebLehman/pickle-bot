@@ -20,10 +20,6 @@ def to_list(s: str) -> [str]:
     return [name.strip().casefold() for name in s.split(",")]
 
 
-def from_list(players: [str]) -> str:
-    return ", ".join(players)
-
-
 @dataclass
 class MsgContent:
     state_content: str
@@ -50,8 +46,9 @@ class State:
     players: [str]
 
     def get_msg_parts(self) -> (MsgContent, discord.ui.View):
+        underlined_players = ", ".join([f"__{name}__" for name in self.players])
         state_content = "\n".join([
-            f"**Player(s)**: {from_list(self.players)}",
+            f"**Player(s)**: {underlined_players} [{len(self.players)}]",
             f"**Singles court(s)**: {self.singles}",
             f"**Doubles court(s)**: {self.doubles}",
         ])
@@ -111,7 +108,7 @@ def generate_modal(parent_interaction: discord.Interaction, state: State):
         )
         players_input = discord.ui.TextInput(
             label="Player name(s)",
-            default=from_list(state.players),
+            default=", ".join(state.players),
             placeholder="Comma-separated list of names",
         )
 
