@@ -1,12 +1,13 @@
 import asyncio
 from dataclasses import dataclass
+from enum import auto, Enum
 import logging
 
 import discord
 from discord.ext import commands
 
 from pickle_bot.config import get_configuration
-from pickle_bot.matches import get_random_matches, NotEnoughPlayersError
+from pickle_bot.matches import get_random_matches, Match, NotEnoughPlayersError
 
 logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -23,13 +24,11 @@ def to_list(s: str) -> [str]:
 @dataclass
 class MsgContent:
     state_content: str
-    matches_content: [str]
     errors_content: [str]
 
     def to_embed(self) -> discord.Embed:
         color = discord.Color.dark_green()
         lines = [self.state_content, ""]
-        lines.extend(["__**Matches**__", "```"] + (self.matches_content or ["<none>"]) + ["```"])
         if self.errors_content:
             lines.extend(["__**Errors**__", "```"] + self.errors_content + ["```"])
             color = discord.Color.dark_red()
@@ -39,11 +38,52 @@ class MsgContent:
         )
 
 
+class TooManyMatchesError(Exception):
+    def __init__(self, singles: int, doubles: int):
+        message = f"{singles} + {doubles} > {State.MAX_MATCHES}"
+        super().__init__(message)
+
+
+class MatchStatus(Enum):
+    LEFT_WON = auto()
+    TIE = auto()
+    RIGHT_WON = auto()
+
+
 @dataclass
 class State:
-    singles: str
-    doubles: str
+    singles: int
+    doubles: int
     players: [str]
+    matches: [(Match, MatchStatus)]
+
+    MAX_MATCHES = 4
+
+    def randomize(self):
+        self.matches = [(match, MatchStatus.TIE) for match in get_random_matches(self.singles, self.doubles, self.players)]
+
+    @classmethod
+    def from_strings(cls, singles: str, doubles: str, players: [str]):
+        log.info("Converting number of courts to numbers")
+        singles = int(singles)
+        doubles = int(doubles)
+        if singles + doubles > cls.MAX_MATCHES:
+            raise TooManyMatchesError(singles, doubles)
+        log.info("Generating matches for (%s, %s, %s)", singles, doubles, players)
+        state = cls(singles=singles, doubles=doubles, players=players, matches=[])
+        state.randomize()
+        return state
+        # try:
+        # except ValueError as e:
+        #     log.info("Number of courts is not an integer: %s", e)
+        #     errors_content.append(f"<number of courts not an integer>: {e}")
+        # except NotEnoughPlayersError as e:
+        #     log.info("Not enough players to generate matches: %s", e)
+        #     errors_content.append(f"<not enough players>: {e}")
+        # except TooManyMatchesError as e:
+        #     log.info("Too many matches: %s", e)
+        #     errors_content.append(f"<too many matches>: {e}")
+        # msg_content = MsgContent(state_content, errors_content)
 
     def get_msg_parts(self) -> (MsgContent, discord.ui.View):
         underlined_players = ", ".join([f"__{name}__" for name in self.players])
@@ -52,28 +92,42 @@ class State:
             f"**Singles court(s)**: {self.singles}",
             f"**Doubles court(s)**: {self.doubles}",
         ])
-        matches_content = []
+        matches = []
         errors_content = []
 
         try:
             log.info("Converting number of courts to numbers")
             singles = int(self.singles)
             doubles = int(self.doubles)
-            log.info(f"Generating matches for ({singles}, {doubles}, {self.players})")
+            if singles + doubles > self.MAX_MATCHES:
+                raise TooManyMatchesError(singles, doubles)
+            log.info("Generating matches for (%s, %s, %s)", singles, doubles, self.players)
             matches = get_random_matches(singles, doubles, self.players)
-            matches_content.extend([str(match) for match in matches])
         except ValueError as e:
-            log.info(f"Number of courts is not an integer: {e}")
+            log.info("Number of courts is not an integer: %s", e)
             errors_content.append(f"<number of courts not an integer>: {e}")
         except NotEnoughPlayersError as e:
-            log.info(f"Not enough players to generate matches: {e}")
+            log.info("Not enough players to generate matches: %s", e)
             errors_content.append(f"<not enough players>: {e}")
-        msg_content = MsgContent(state_content, matches_content, errors_content)
-        view = generate_view(self, len(errors_content) == 0)
+        except TooManyMatchesError as e:
+            log.info("Too many matches: %s", e)
+            errors_content.append(f"<too many matches>: {e}")
+        msg_content = MsgContent(state_content, errors_content)
+        view = generate_view(self, matches, len(errors_content) == 0)
         return (msg_content, view)
 
 
-def generate_view(state: State, can_generate: bool) -> discord.ui.View:
+class TeamButton(discord.ui.Button):
+    def __init__(self, players: [str], row: int):
+        self.players = players
+        super().__init__(label=", ".join(players), row=row)
+
+    async def callback(self, interaction: discord.Interaction):
+        self.style = discord.ButtonStyle.red
+        await interaction.response.defer()
+
+
+def generate_view(state: State, matches: [Match], can_generate: bool) -> discord.ui.View:
     disabled = not can_generate
     style = discord.ButtonStyle.green if can_generate else discord.ButtonStyle.red
 
@@ -81,6 +135,10 @@ def generate_view(state: State, can_generate: bool) -> discord.ui.View:
         def __init__(self):
             super().__init__(timeout=None)
             self.state = state
+            for i, match in enumerate(matches, start=1):
+                n = len(match.players) // 2
+                self.add_item(TeamButton(match.players[:n], i))
+                self.add_item(TeamButton(match.players[n:], i))
 
         @discord.ui.button(label="Generate", disabled=disabled, style=style)
         async def generate(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -185,7 +243,7 @@ Current commands are:
                 self.is_synced = True
                 log.info("Synced tree")
             if self.user is not None:
-                log.info(f"Logged in as {self.user.name!r}")
+                log.info("Logged in as %r", self.user.name)
 
         @self.event
         async def on_app_command_completion(
