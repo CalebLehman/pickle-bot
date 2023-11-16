@@ -1,5 +1,5 @@
 from enum import auto, Enum
-from random import sample, shuffle
+from random import shuffle
 
 
 class CourtType(Enum):
@@ -19,7 +19,6 @@ class Match:
         assert len(players) == court_type.size(), "Court must have correct number of players"
         self.court_type = court_type
         self.players = players
-        shuffle(self.players)
 
     def __str__(self):
         match self.court_type:
@@ -47,9 +46,10 @@ def get_random_matches(singles: int, doubles: int, players: [str]) -> [Match]:
     if len(players) < sum(court_type.size() for court_type in court_types):
         raise NotEnoughPlayersError(singles, doubles, players)
     matches = []
-    remaining_players = players
+    remaining_players = list(players)
+    shuffle(remaining_players)
     for court_type in court_types:
-        match_players = sample(remaining_players, court_type.size())
+        match_players = remaining_players[:court_type.size()]
         matches.append(Match(court_type, match_players))
-        remaining_players = [player for player in remaining_players if player not in match_players]
+        remaining_players = remaining_players[court_type.size():]
     return matches
